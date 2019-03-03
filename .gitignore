@@ -105,4 +105,7 @@ venv.bak/
 
 
 *.tgz
-
+flowers/train
+flowers/test
+flowers/valid
+flowers/jpg
