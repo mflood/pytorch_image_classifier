@@ -14,6 +14,7 @@ from torch import nn
 from torchvision import datasets, transforms, models
 from PIL import Image
 import log_setup
+from train import Trainer
 
 def parse_args(argv=None):
     """
@@ -70,42 +71,6 @@ class Predictor(object):
         """
         assert new_mode in ('cpu', 'cuda')
         self._inference_mode = new_mode
-
-    def load_checkpoint(self, checkpoint_path):
-        """
-            Checkpoint is state_dict over a model
-        """
-
-        self._logger.info("Loading checkpoint from %s", checkpoint_path)
-
-        # open the file and load the checkpoint data
-        checkpoint = torch.load(checkpoint_path)
-        self._logger.debug("Loaded the following keys from checkpoint: %s", checkpoint.keys())
-
-        self._logger.debug("Loading densenet121")
-        model = models.densenet121(pretrained=True)
-
-        # Freeze parameters
-        self._logger.debug("Freezing pretrained model")
-        for parameter in model.parameters():
-            parameter.requires_grad = False
-
-
-        self._logger.debug("Replacing pretrained classifier with custom image classifier")
-        classifier = nn.Sequential(OrderedDict([
-            ('fullyconnected1', nn.Linear(1024, 500)),
-            ('relu', nn.ReLU()),
-            ('fullyconnected2', nn.Linear(500, 102)),
-            ('output', nn.LogSoftmax(dim=1))
-        ]))
-
-        model.classifier = classifier
-
-        self._logger.debug("Loading model state_dict")
-        model.load_state_dict(checkpoint['state_dict'])
-
-        class_to_idx = checkpoint['class_to_idx']
-        return model, class_to_idx
 
     def predict(self, image_path, model, class_to_idx, top_k=5):
         ''' Predict the class (or classes) of an image using a trained deep learning model.
@@ -191,7 +156,10 @@ def main():
     if arg_object.gpu_mode:
         predictor.set_inference_mode('cuda')
 
-    model, class_to_idx = predictor.load_checkpoint(checkpoint_path=arg_object.checkpoint)
+    trainer = Trainer()
+    model, class_to_idx = trainer.load_model(arg_object.checkpoint)
+
+    #model, class_to_idx = predictor.load_checkpoint(checkpoint_path=arg_object.checkpoint)
 
     probs, classes = predictor.predict(image_path=arg_object.image_path,
                                        model=model,

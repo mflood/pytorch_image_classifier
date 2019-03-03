@@ -85,12 +85,10 @@ def parse_args(argv=None):
 
 class Trainer(object):
 
-    def __init__(self, learning_rate):
+    def __init__(self):
         self._logger = logging.getLogger()
         self._criterion = nn.NLLLoss()
-        self._learning_rate = learning_rate
         self._model = None
-        self._optimizer = None
         self._device = "cpu"
         self._validate_data_loader = None
         self._test_data_loader = None
@@ -176,18 +174,10 @@ class Trainer(object):
         self._model.classifier = self._create_classifier(in_count=in_count,
                                                          hidden_count=hidden_features,
                                                          out_count=out_features)
-        # Adam uses momentum for gradient descent
-        self._optimizer = optim.Adam(self._model.classifier.parameters(),
-                                     lr=self._learning_rate)
-
         # store params for saving the model
         self._arch = pretrained_arch
         self._hidden_features = hidden_features
         self._out_features = out_features
-
-        #self._logger.debug(self._model)
-        self._logger.debug(self._optimizer)
-
 
     def validate_test_data(self):
         self._logger.info("validating model against images in test/")
@@ -243,10 +233,16 @@ class Trainer(object):
             return loss, accuracy
 
 
-    def train(self, num_epochs):
+    def train(self, num_epochs, learning_rate):
 
         print_every = 40
         steps = 0
+
+        # Adam uses momentum for gradient descent
+        optimizer = optim.Adam(self._model.classifier.parameters(),
+                                     lr=learning_rate)
+
+        self._logger.info(optimizer)
 
         # local testing - just do it once
         if DEVELOPMENT_MODE and self._device == "cpu":
@@ -266,13 +262,13 @@ class Trainer(object):
                 inputs, labels = inputs.to(self._device), labels.to(self._device)
 
                 # reset gradients
-                self._optimizer.zero_grad()
+                optimizer.zero_grad()
 
                 # Forward and backward passes
                 outputs = self._model.forward(inputs)
                 loss = self._criterion(outputs, labels)
                 loss.backward()
-                self._optimizer.step()
+                optimizer.step()
 
                 running_loss += loss.item()
 
@@ -317,7 +313,7 @@ class Trainer(object):
                           checkpoint.get('hidden_features'),
                           checkpoint.get('out_features'))
         self._create_model(pretrained_arch=checkpoint.get('pretrained_arch', 'densenet121'),
-                           hidden_features=int(checkpoint.get('hidden_featuers', 500)),
+                           hidden_features=int(checkpoint.get('hidden_features', 500)),
                            out_features=int(checkpoint.get('out_features', 102)))
 
         self._model.load_state_dict(checkpoint['state_dict'])
@@ -354,7 +350,7 @@ def main():
     else:
         log_setup.init(loglevel=logging.INFO)
 
-    trainer = Trainer(learning_rate=float(arg_object.learning_rate))
+    trainer = Trainer()
 
     if arg_object.gpu_mode:
         trainer.set_device(device='cuda')
@@ -370,7 +366,7 @@ def main():
                               out_features=102)
     trainer.validate_test_data()
     trainer.validate_validate_data()
-    trainer.train(num_epochs=int(arg_object.epochs))
+    trainer.train(num_epochs=int(arg_object.epochs), learning_rate=float(arg_object.learning_rate))
     trainer.save_model(save_dir=arg_object.save_dir,
                        epochs=int(arg_object.epochs))
 
