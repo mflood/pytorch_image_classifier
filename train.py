@@ -15,7 +15,7 @@ from torch import optim
 import torch.nn.functional as F
 from torchvision import datasets, transforms, models
 
-DEVELOPMENT_MODE=True
+DEVELOPMENT_MODE=False
 
 def parse_args(argv=None):
     """
@@ -182,12 +182,16 @@ class Trainer(object):
     def validate_test_data(self):
         self._logger.info("validating model against images in test/")
         loss, accuracy = self._validate(self._test_data_loader)
-        self._logger.debug("Test loss: %s Test accuracy: %s", loss, accuracy)
+        self._logger.debug("Test loss: %s Test accuracy: %s",
+                           loss/len(self._test_data_loader),
+                           accuracy/len(self._test_data_loader))
 
     def validate_validate_data(self):
         self._logger.info("validating model against images in valid/")
         loss, accuracy = self._validate(self._validate_data_loader)
-        self._logger.debug("Validation loss: %s Validation accuracy: %s", loss, accuracy)
+        self._logger.debug("Validation loss: %s Validation accuracy: %s",
+                           loss/len(self._validate_data_loader),
+                           accuracy/len(self._validate_data_loader))
         return loss, accuracy
 
     def _validate(self, dataloader):
