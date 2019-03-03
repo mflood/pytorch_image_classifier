@@ -1,6 +1,7 @@
 import logging
 import argparse
 import log_setup
+import os
 
 #####
 #import matplotlib.pyplot as plt
@@ -75,8 +76,53 @@ def parse_args(argv=None):
     results = parser.parse_args(argv)
     return results
 
-def train():
-    pass
+class Trainer(object):
+
+    def __init__(self, data_dir):
+        self._logger = logging.getLogger()
+        self._data_dir = data_dir
+
+
+    def _create_data_loader(self, categorized_path, batch_size, with_randomization):
+        
+        self._logger.info("Creating data set from folder '%s' random=%s", categorized_path, with_randomization)
+        if with_randomization:
+            transform_list = [transforms.RandomRotation(30),
+                              transforms.RandomResizedCrop(224),
+                              transforms.RandomHorizontalFlip()]
+                              
+        else:
+            transform_list = [transforms.Resize(256),
+                              transforms.CenterCrop(224)]
+
+        transform_list.append(transforms.ToTensor())
+        transform_list.append(transforms.Normalize([0.485, 0.456, 0.406], 
+                                                   [0.229, 0.224, 0.225]))
+
+
+        transform_set = transforms.Compose(transform_list)
+
+        # Load the dataset with ImageFolder
+        dataset = datasets.ImageFolder(categorized_path,
+                                       transform=transform_set)
+        self._logger.debug(dataset)
+        # define the data loader
+        dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=with_randomization)
+        self._logger.debug(dataloader)
+
+        return dataloader
+
+    def _create_data_loaders(self):
+
+        validate_path = os.path.join(self._data_dir, "valid")
+        validate_data_loader = self._create_data_loader(validate_path, batch_size=32,  with_randomization=False)
+
+        test_path = os.path.join(self._data_dir, "valid")
+        test_data_loader = self._create_data_loader(test_path, batch_size=32, with_randomization=False)
+
+        train_path = os.path.join(self._data_dir, "valid")
+        train_data_loader = self._create_data_loader(train_path, batch_size=64, with_randomization=True)
+         
 
 def main():
 
@@ -89,7 +135,8 @@ def main():
 
     logger = logging.getLogger()
 
-    train()
+    trainer = Trainer(arg_object.data_directory)
+    trainer._create_data_loaders()
 
 if __name__ == "__main__":
     main()
