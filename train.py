@@ -377,8 +377,8 @@ def main():
         trainer._create_model(pretrained_arch=arg_object.pretrained_arch,
                               hidden_features=int(arg_object.hidden_units),
                               out_features=102)
-    trainer.validate_test_data()
-    trainer.validate_validate_data()
+    #trainer.validate_test_data()
+    #trainer.validate_validate_data()
     trainer.train(num_epochs=int(arg_object.epochs), learning_rate=float(arg_object.learning_rate))
     trainer.save_model(save_dir=arg_object.save_dir,
                        epochs=int(arg_object.epochs))
