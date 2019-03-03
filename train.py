@@ -15,6 +15,7 @@ from torch import optim
 import torch.nn.functional as F
 from torchvision import datasets, transforms, models
 
+DEVELOPMENT_MODE=True
 
 def parse_args(argv=None):
     """
@@ -84,12 +85,10 @@ def parse_args(argv=None):
 
 class Trainer(object):
 
-    def __init__(self, data_dir, learning_rate, epochs):
+    def __init__(self, learning_rate):
         self._logger = logging.getLogger()
-        self._data_dir = data_dir
         self._criterion = nn.NLLLoss()
         self._learning_rate = learning_rate
-        self._epochs = epochs
         self._model = None
         self._optimizer = None
         self._device = "cpu"
@@ -133,17 +132,17 @@ class Trainer(object):
 
         return dataloader
 
-    def _create_data_loaders(self):
+    def _create_data_loaders(self, data_dir):
 
-        validate_path = os.path.join(self._data_dir, "valid")
+        validate_path = os.path.join(data_dir, "valid")
         self._validate_data_loader = self._create_data_loader(validate_path, batch_size=32, with_randomization=False)
         self._logger.debug(self._validate_data_loader)
 
-        test_path = os.path.join(self._data_dir, "test")
+        test_path = os.path.join(data_dir, "test")
         self._test_data_loader = self._create_data_loader(test_path, batch_size=32, with_randomization=False)
         self._logger.debug(self._test_data_loader)
 
-        train_path = os.path.join(self._data_dir, "train")
+        train_path = os.path.join(data_dir, "train")
         self._train_data_loader = self._create_data_loader(train_path, batch_size=64, with_randomization=True)
         self._logger.debug(self._train_data_loader)
 
@@ -193,7 +192,7 @@ class Trainer(object):
     def validate_test_data(self):
         self._logger.info("validating model against images in test/")
         loss, accuracy = self._validate(self._test_data_loader)
-        self._logger.debug("Test loss: %s Tests accuracy: %s", loss, accuracy)
+        self._logger.debug("Test loss: %s Test accuracy: %s", loss, accuracy)
 
     def validate_validate_data(self):
         self._logger.info("validating model against images in valid/")
@@ -239,25 +238,28 @@ class Trainer(object):
                 accuracy += equality.type(torch.FloatTensor).mean()
 
                 # local testing - just do it once
-                if self._device == "cpu":
+                if DEVELOPMENT_MODE and self._device == "cpu":
                     break
             return loss, accuracy
 
 
-    def train(self):
+    def train(self, num_epochs):
 
         print_every = 40
         steps = 0
+
+        # local testing - just do it once
+        if DEVELOPMENT_MODE and self._device == "cpu":
+            print_every = 1
 
         # put model in training mode
         # so dropout is enabled
         self._model.train()
 
-        for current_epoch in range(self._epochs):
-            self._logger.info("starting epoch %s/%s", current_epoch + 1, self._epochs)
+        for current_epoch in range(num_epochs):
+            self._logger.info("starting epoch %s/%s", current_epoch + 1, num_epochs)
             running_loss = 0
             for _, (inputs, labels) in enumerate(self._train_data_loader):
-                self._logger.info("training on batch")
                 steps += 1
 
                 # move inputs / labels to cpu / cuda
@@ -278,7 +280,7 @@ class Trainer(object):
 
                     validation_loss, validation_accuracy = self.validate_validate_data()
 
-                    print("Epoch: {}/{}.. ".format(current_epoch + 1, self._epochs),
+                    print("Epoch: {}/{}.. ".format(current_epoch + 1, num_epochs),
                           "Training Loss: {:.3f}.. ".format(running_loss/print_every),
                           "Validation Loss: {:.3f}.. ".format(validation_loss/len(self._validate_data_loader)),
                           "Validation Accuracy: {:.3f}".format(validation_accuracy/len(self._validate_data_loader)))
@@ -290,7 +292,7 @@ class Trainer(object):
                     self._model.train()
 
                     # local testing - just do it once
-                    if self._device == "cpu":
+                    if DEVELOPMENT_MODE and self._device == "cpu":
                         break
 
     def _get_class_to_index(self, dataloader):
@@ -321,7 +323,7 @@ class Trainer(object):
         self._model.load_state_dict(checkpoint['state_dict'])
         return self._model, checkpoint['class_to_idx']
 
-    def save_model(self, save_dir):
+    def save_model(self, save_dir, epochs):
         self._model.to('cpu')
 
         # grab the class_to_idx data from the training model
@@ -336,7 +338,7 @@ class Trainer(object):
 
         filename = "checkpoint_{}_ft{}_ep{}.pth".format(self._arch,
                                                         self._hidden_features,
-                                                        self._epochs)
+                                                        epochs)
 
         filepath = os.path.join(save_dir, filename)
         self._logger.info("Saving checkpoint to %s", filepath)
@@ -352,14 +354,12 @@ def main():
     else:
         log_setup.init(loglevel=logging.INFO)
 
-    trainer = Trainer(arg_object.data_directory,
-                      learning_rate=float(arg_object.learning_rate),
-                      epochs=int(arg_object.epochs))
+    trainer = Trainer(learning_rate=float(arg_object.learning_rate))
 
     if arg_object.gpu_mode:
         trainer.set_device(device='cuda')
 
-    trainer._create_data_loaders()
+    trainer._create_data_loaders(data_dir=arg_object.data_directory)
     if arg_object.checkpoint:
         trainer.load_model(arg_object.checkpoint)
 
@@ -370,8 +370,9 @@ def main():
                               out_features=102)
     trainer.validate_test_data()
     trainer.validate_validate_data()
-    trainer.train()
-    trainer.save_model(save_dir=arg_object.save_dir)
+    trainer.train(num_epochs=int(arg_object.epochs))
+    trainer.save_model(save_dir=arg_object.save_dir,
+                       epochs=int(arg_object.epochs))
 
 if __name__ == "__main__":
     main()
