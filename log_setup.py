@@ -1,5 +1,6 @@
 """
     log_setup.py
+    Matthew Flood
 """
 import logging
 

@@ -196,6 +196,8 @@ class Trainer(object):
         # to ensure dropout is turned off
         self._model.eval()
 
+        self._logger.debug("moving model to %s", self._device)
+        self._model.to(self._device)
         # Turn off all gradients for all tensors during
         # validation, saves memory and speedsd up computations
         with torch.no_grad():
@@ -203,6 +205,7 @@ class Trainer(object):
             accuracy = 0
             for images, labels in dataloader:
 
+                self._logger.debug("moving validation images and labels to %s", self._device)
                 images, labels = images.to(self._device), labels.to(self._device)
 
                 self._logger.debug("forward pass")
@@ -259,6 +262,7 @@ class Trainer(object):
                 steps += 1
 
                 # move inputs / labels to cpu / cuda
+                self._logger.debug("moving training images and labels to %s", self._device)
                 inputs, labels = inputs.to(self._device), labels.to(self._device)
 
                 # reset gradients
