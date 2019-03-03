@@ -87,6 +87,9 @@ class Trainer(object):
         self._model = None
         self._optimizer = None
         self._device = "cpu"
+        self._validate_data_loader = None
+        self._test_data_loader = None
+        self._train_data_loader = None
 
     def set_device(self, device):
         """
@@ -128,12 +131,15 @@ class Trainer(object):
 
         validate_path = os.path.join(self._data_dir, "valid")
         self._validate_data_loader = self._create_data_loader(validate_path, batch_size=32, with_randomization=False)
+        self._logger.debug(self._validate_data_loader)
 
         test_path = os.path.join(self._data_dir, "test")
         self._test_data_loader = self._create_data_loader(test_path, batch_size=32, with_randomization=False)
+        self._logger.debug(self._test_data_loader)
 
         train_path = os.path.join(self._data_dir, "train")
         self._train_data_loader = self._create_data_loader(train_path, batch_size=64, with_randomization=True)
+        self._logger.debug(self._train_data_loader)
 
     def _create_classifier(self, in_count, out_count):
         classifier = nn.Sequential(OrderedDict([
@@ -171,13 +177,19 @@ class Trainer(object):
 
 
     def validate_test_data(self):
+        self._logger.info("validating model against images in test/")
         self._validate(self._test_data_loader)
 
     def validate_validate_data(self):
+        self._logger.info("validating model against images in valid/")
         self._validate(self._validate_data_loader)
 
     def _validate(self, dataloader):
+
+        # Make sure network is in eval mode for inference
         self._model.eval()
+
+        # Turn off gradients for validation, saves memory and computations
         with torch.no_grad():
             test_loss = 0
             accuracy = 0
@@ -198,6 +210,49 @@ class Trainer(object):
             return test_loss, accuracy
 
 
+    def train(self, epochs):
+        
+        print_every = 40
+        steps = 0
+
+        # put model in training mode
+        self._model.train()
+
+        for e in range(epochs):
+            self._logger.info("starting epoch %s", e)
+            running_loss = 0
+            for ii, (inputs, labels) in enumerate(self._train_data_loader):
+                self._logger.info("training on batch")
+                steps += 1
+
+                # move inputs / labels to cpu / cuda
+                inputs, labels = inputs.to(self._device), labels.to(self._device)
+
+                # reset gradients
+                self._optimizer.zero_grad()
+
+                # Forward and backward passes
+                outputs = self._model.forward(inputs)
+                loss = self._criterion(outputs, labels)
+                loss.backward()
+                self._optimizer.step()
+
+                running_loss += loss.item()
+
+                if steps % print_every == 0:
+
+                    test_loss, accuracy = self.validate_validate_data()
+
+                    print("Epoch: {}/{}.. ".format(e+1, epochs),
+                          "Training Loss: {:.3f}.. ".format(running_loss/print_every),
+                          "Test Loss: {:.3f}.. ".format(test_loss/len(validloader)),
+                          "Test Accuracy: {:.3f}".format(accuracy/len(validloader)))
+
+                    running_loss = 0
+
+                    # Make sure training is back on
+                    self._model.train()
+
 def main():
 
     arg_object = parse_args()
@@ -217,6 +272,8 @@ def main():
     trainer._create_data_loaders()
     trainer._create_model(pretrained_arch=arg_object.pretrained_arch, out_features=102)
     trainer.validate_test_data()
+    trainer.validate_validate_data()
+    trainer.train(arg_object.epochs)
 
 if __name__ == "__main__":
     main()
