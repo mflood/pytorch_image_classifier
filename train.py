@@ -196,7 +196,7 @@ class Trainer(object):
         # to ensure dropout is turned off
         self._model.eval()
 
-        self._logger.debug("moving model to %s", self._device)
+        self._logger.info("moving model to %s for validation", self._device)
         self._model.to(self._device)
         # Turn off all gradients for all tensors during
         # validation, saves memory and speedsd up computations
@@ -254,6 +254,10 @@ class Trainer(object):
         # put model in training mode
         # so dropout is enabled
         self._model.train()
+
+        # Move model to cpu/gpu
+        self._logger.info("moving model to %s for training", self._device)
+        self._model.to(self._device)
 
         for current_epoch in range(num_epochs):
             self._logger.info("starting epoch %s/%s", current_epoch + 1, num_epochs)
@@ -324,6 +328,7 @@ class Trainer(object):
         return self._model, checkpoint['class_to_idx']
 
     def save_model(self, save_dir, epochs):
+        
         self._model.to('cpu')
 
         # grab the class_to_idx data from the training model
