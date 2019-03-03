@@ -71,19 +71,25 @@ def parse_args(argv=None):
     parser.add_argument('--save_dir',
                         dest="save_dir",
                         required=False,
+                        default="./",
                         help="Set directopry to save checkpoints")
+
+    parser.add_argument('--checkpoint',
+                        dest="checkpoint",
+                        required=False,
+                        help="Resume Training a Checkpoint")
 
     results = parser.parse_args(argv)
     return results
 
 class Trainer(object):
 
-    def __init__(self, data_dir, hidden_layer_units, learning_rate):
+    def __init__(self, data_dir, learning_rate, epochs):
         self._logger = logging.getLogger()
         self._data_dir = data_dir
-        self._hidden_layer_units = hidden_layer_units
         self._criterion = nn.NLLLoss()
         self._learning_rate = learning_rate
+        self._epochs = epochs
         self._model = None
         self._optimizer = None
         self._device = "cpu"
@@ -141,17 +147,17 @@ class Trainer(object):
         self._train_data_loader = self._create_data_loader(train_path, batch_size=64, with_randomization=True)
         self._logger.debug(self._train_data_loader)
 
-    def _create_classifier(self, in_count, out_count):
+    def _create_classifier(self, in_count, hidden_count, out_count):
         classifier = nn.Sequential(OrderedDict([
-            ('fullyconnected1', nn.Linear(in_count, self._hidden_layer_units)),
+            ('fullyconnected1', nn.Linear(in_count, hidden_count)),
             ('relu', nn.ReLU()),
-            ('fullyconnected2', nn.Linear(self._hidden_layer_units, out_count)),
+            ('fullyconnected2', nn.Linear(hidden_count, out_count)),
             ('output', nn.LogSoftmax(dim=1))
             ]))
         self._logger.debug(classifier)
         return classifier
 
-    def _create_model(self, pretrained_arch, out_features):
+    def _create_model(self, pretrained_arch, hidden_features, out_features):
         self._logger.info("Loading pretrained %s", pretrained_arch)
         if pretrained_arch == "densenet121":
             self._model = models.densenet121(pretrained=True)
@@ -168,30 +174,43 @@ class Trainer(object):
             parameter.requires_grad = False
 
         # Replace classifier
-        self._model.classifier = self._create_classifier(in_count=in_count, out_count=out_features)
+        self._model.classifier = self._create_classifier(in_count=in_count,
+                                                         hidden_count=hidden_features,
+                                                         out_count=out_features)
+        # Adam uses momentum for gradient descent
         self._optimizer = optim.Adam(self._model.classifier.parameters(),
                                      lr=self._learning_rate)
 
-        self._logger.debug(self._model)
+        # store params for saving the model
+        self._arch = pretrained_arch
+        self._hidden_features = hidden_features
+        self._out_features = out_features
+
+        #self._logger.debug(self._model)
         self._logger.debug(self._optimizer)
 
 
     def validate_test_data(self):
         self._logger.info("validating model against images in test/")
-        self._validate(self._test_data_loader)
+        loss, accuracy = self._validate(self._test_data_loader)
+        self._logger.debug("Test loss: %s Tests accuracy: %s", loss, accuracy)
 
     def validate_validate_data(self):
         self._logger.info("validating model against images in valid/")
-        self._validate(self._validate_data_loader)
+        loss, accuracy = self._validate(self._validate_data_loader)
+        self._logger.debug("Validation loss: %s Validation accuracy: %s", loss, accuracy)
+        return loss, accuracy
 
     def _validate(self, dataloader):
 
         # Make sure network is in eval mode for inference
+        # to ensure dropout is turned off
         self._model.eval()
 
-        # Turn off gradients for validation, saves memory and computations
+        # Turn off all gradients for all tensors during
+        # validation, saves memory and speedsd up computations
         with torch.no_grad():
-            test_loss = 0
+            loss = 0
             accuracy = 0
             for images, labels in dataloader:
 
@@ -199,29 +218,45 @@ class Trainer(object):
 
                 self._logger.debug("forward pass")
                 output = self._model.forward(images)
-                test_loss += self._criterion(output, labels).item()
+                loss += self._criterion(output, labels).item()
 
-                ps = torch.exp(output)
-                equality = (labels.data == ps.max(dim=1)[1])
+                probabilities = torch.exp(output)
+                # max() returns two tensors.
+                # tensor[0] contains the highest probabilities
+                # of each image.
+                # tensor[1] contains the predicted class associated
+                # with the highest probability
+                #
+                # labels.data contains the class that each image
+                # actually is
+                #
+                # equality gives us 1's and 0's for images where
+                # predicted class is correct
+                equality = (labels.data == probabilities.max(dim=1)[1])
+                # how many predictions were correct / number of predictions made
+                # We also have to convert equality from ByteTensor to FloatTensor
+                # because ByteTensor does not support mean()
                 accuracy += equality.type(torch.FloatTensor).mean()
+
+                # local testing - just do it once
                 if self._device == "cpu":
                     break
-            self._logger.debug("loss: %s accuracy: %s", test_loss, accuracy)
-            return test_loss, accuracy
+            return loss, accuracy
 
 
-    def train(self, epochs):
-        
+    def train(self):
+
         print_every = 40
         steps = 0
 
         # put model in training mode
+        # so dropout is enabled
         self._model.train()
 
-        for e in range(epochs):
-            self._logger.info("starting epoch %s", e)
+        for current_epoch in range(self._epochs):
+            self._logger.info("starting epoch %s/%s", current_epoch + 1, self._epochs)
             running_loss = 0
-            for ii, (inputs, labels) in enumerate(self._train_data_loader):
+            for _, (inputs, labels) in enumerate(self._train_data_loader):
                 self._logger.info("training on batch")
                 steps += 1
 
@@ -241,17 +276,72 @@ class Trainer(object):
 
                 if steps % print_every == 0:
 
-                    test_loss, accuracy = self.validate_validate_data()
+                    validation_loss, validation_accuracy = self.validate_validate_data()
 
-                    print("Epoch: {}/{}.. ".format(e+1, epochs),
+                    print("Epoch: {}/{}.. ".format(current_epoch + 1, self._epochs),
                           "Training Loss: {:.3f}.. ".format(running_loss/print_every),
-                          "Test Loss: {:.3f}.. ".format(test_loss/len(validloader)),
-                          "Test Accuracy: {:.3f}".format(accuracy/len(validloader)))
+                          "Validation Loss: {:.3f}.. ".format(validation_loss/len(self._validate_data_loader)),
+                          "Validation Accuracy: {:.3f}".format(validation_accuracy/len(self._validate_data_loader)))
 
                     running_loss = 0
 
                     # Make sure training is back on
+                    # so droupout is back on
                     self._model.train()
+
+                    # local testing - just do it once
+                    if self._device == "cpu":
+                        break
+
+    def _get_class_to_index(self, dataloader):
+        print(help(dataloader.dataset))
+        print(dir(dataloader.dataset))
+
+
+    def load_model(self, checkpoint_path):
+        """
+        checkpoint = {
+            'class_to_idx': class_to_idx,
+            'state_dict': self._model.state_dict(),
+            'pretrained_arch': self._arch,
+            'hidden_features': self._hidden_features,
+            'out_features': self._out_features,
+            }
+        """
+        self._logger.info("Loading model from %s", checkpoint_path)
+        checkpoint = torch.load(checkpoint_path)
+        self._logger.info("Arch: %s, Hidden Features: %s, Output Features: %s",
+                          checkpoint.get('pretrained_arch'),
+                          checkpoint.get('hidden_features'),
+                          checkpoint.get('out_features'))
+        self._create_model(pretrained_arch=checkpoint.get('pretrained_arch', 'densenet121'),
+                           hidden_features=int(checkpoint.get('hidden_featuers', 500)),
+                           out_features=int(checkpoint.get('out_features', 102)))
+
+        self._model.load_state_dict(checkpoint['state_dict'])
+        return self._model, checkpoint['class_to_idx']
+
+    def save_model(self, save_dir):
+        self._model.to('cpu')
+
+        # grab the class_to_idx data from the training model
+        class_to_idx = self._train_data_loader.dataset.class_to_idx
+        checkpoint = {
+            'class_to_idx': class_to_idx,
+            'state_dict': self._model.state_dict(),
+            'pretrained_arch': self._arch,
+            'hidden_features': self._hidden_features,
+            'out_features': self._out_features,
+        }
+
+        filename = "checkpoint_{}_ft{}_ep{}.pth".format(self._arch,
+                                                        self._hidden_features,
+                                                        self._epochs)
+
+        filepath = os.path.join(save_dir, filename)
+        self._logger.info("Saving checkpoint to %s", filepath)
+        torch.save(checkpoint, filepath)
+
 
 def main():
 
@@ -263,17 +353,25 @@ def main():
         log_setup.init(loglevel=logging.INFO)
 
     trainer = Trainer(arg_object.data_directory,
-                      hidden_layer_units=int(arg_object.hidden_units),
-                      learning_rate=float(arg_object.learning_rate))
+                      learning_rate=float(arg_object.learning_rate),
+                      epochs=int(arg_object.epochs))
 
     if arg_object.gpu_mode:
         trainer.set_device(device='cuda')
 
     trainer._create_data_loaders()
-    trainer._create_model(pretrained_arch=arg_object.pretrained_arch, out_features=102)
+    if arg_object.checkpoint:
+        trainer.load_model(arg_object.checkpoint)
+
+    else:
+        # build from scratch
+        trainer._create_model(pretrained_arch=arg_object.pretrained_arch,
+                              hidden_features=int(arg_object.hidden_units),
+                              out_features=102)
     trainer.validate_test_data()
     trainer.validate_validate_data()
-    trainer.train(arg_object.epochs)
+    trainer.train()
+    trainer.save_model(save_dir=arg_object.save_dir)
 
 if __name__ == "__main__":
     main()

@@ -1,18 +1,19 @@
 """
     predict.py
     Matthew Flood
-    
+
     Load saved deep-learning model and classify an image
 """
-import torch
-import json
-from collections import OrderedDict
-from torchvision import datasets, transforms, models
-from torch import nn
+
 import logging
 import argparse
-import log_setup
+from collections import OrderedDict
+import json
+import torch
+from torch import nn
+from torchvision import datasets, transforms, models
 from PIL import Image
+import log_setup
 
 def parse_args(argv=None):
     """
@@ -21,15 +22,15 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Image Classifier Predictor")
 
     # positional arguments
-    parser.add_argument('image_path', 
-                        action="store", 
+    parser.add_argument('image_path',
+                        action="store",
                         help="Path to input image")
 
     parser.add_argument('checkpoint',
                         action="store",
                         help="Path to checkpoint")
     # optionals
-    parser.add_argument('-v', 
+    parser.add_argument('-v',
                         action="store_true",
                         dest="verbose",
                         required=False,
@@ -38,7 +39,7 @@ def parse_args(argv=None):
     parser.add_argument('--gpu',
                         action="store_true",
                         dest="gpu_mode",
-                        required=False, 
+                        required=False,
                         help="Use GPU for inference")
 
     parser.add_argument('--top_k',
@@ -92,11 +93,11 @@ class Predictor(object):
 
         self._logger.debug("Replacing pretrained classifier with custom image classifier")
         classifier = nn.Sequential(OrderedDict([
-                              ('fullyconnected1', nn.Linear(1024, 500)),
-                              ('relu', nn.ReLU()),
-                              ('fullyconnected2', nn.Linear(500, 102)),
-                              ('output', nn.LogSoftmax(dim=1))
-                              ]))
+            ('fullyconnected1', nn.Linear(1024, 500)),
+            ('relu', nn.ReLU()),
+            ('fullyconnected2', nn.Linear(500, 102)),
+            ('output', nn.LogSoftmax(dim=1))
+        ]))
 
         model.classifier = classifier
 
@@ -133,13 +134,13 @@ class Predictor(object):
         with torch.no_grad():
             logits = model.forward(image_as_torch.unsqueeze_(0))
 
-        # Output of the network are logits, 
+        # Output of the network are logits,
         # need to take softmax for probabilities
-        ps = torch.exp(logits)
+        probabilities = torch.exp(logits)
 
         # topk finds the topk probabilities along with
         # the corresponding indexes
-        probabilities, indexes = ps.topk(top_k)
+        probabilities, indexes = probabilities.topk(top_k)
         self._logger.debug("Probabilities: %s", indexes)
         self._logger.debug("Indexes: %s", indexes)
 
@@ -162,7 +163,7 @@ def process_image(image):
         transforms.Resize(256),
         transforms.CenterCrop(224),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], 
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
                              std=[0.229, 0.224, 0.225])
     ])
     pimage = preprocess(image)
