@@ -17,12 +17,15 @@ p2.xlarge  0.90/hour
 ```
 
 # install pytorch and downgrade to match udacity environment
+
+```
   conda install pytorch torchvision -c pytorch
   pip install pip==9.0.1
   pip install torchvision==0.2.1
   pip install torch==0.4.0
   pip install numpy==1.12.1
-
+```
+  
 # to read:
 
 https://docs.aws.amazon.com/dlami/latest/devguide/tutorial-pytorch.html
