@@ -10,9 +10,11 @@ Deep Learning AMI with Conda (Amazon Linux) (ami-895adef3)
 p2.xlarge  0.90/hour
 
 # ssh onto box
+```bash
   git clone https://github.com/mflood/pytorch_image_classifier
   cd pytorch_image_classifier/flowers
   ./1_download_images.sh && ./2_extract_images.sh
+```
 
 # install pytorch and downgrade to match udacity environment
   conda install pytorch torchvision -c pytorch
